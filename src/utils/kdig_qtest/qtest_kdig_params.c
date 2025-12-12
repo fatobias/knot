@@ -4,19 +4,18 @@
  */
 
 #include <arpa/inet.h>
-#include <fcntl.h>
 #include <locale.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
-#include "utils/kdig/kdig_params.h"
-#include "libknot/errcode.h"
+#include "utils/kdig_qtest/qtest_kdig_params.h"
 #include "utils/common/hex.h"
 #include "utils/common/msg.h"
-#include "utils/common/netio.h"
-#include "utils/common/params.h"
-#include "utils/common/resolv.h"
+#include "utils/kdig_qtest/qtest_netio.h"
+#include "utils/kdig_qtest/qtest_params.h"
+#include "utils/kdig_qtest/qtest_resolv.h"
+#include "libknot/descriptor.h"
 #include "libknot/libknot.h"
 #include "contrib/base64.h"
 #include "contrib/sockaddr.h"
@@ -24,6 +23,8 @@
 #include "contrib/strtonum.h"
 #include "contrib/time.h"
 #include "contrib/ucw/lists.h"
+#include "libdnssec/error.h"
+#include "libdnssec/random.h"
 
 #define PROGRAM_NAME "kdig"
 
@@ -1076,8 +1077,8 @@ static int opt_cookie(const char *arg, void *query)
 		q->cc.len = KNOT_EDNS_COOKIE_CLNT_SIZE;
 
 		int ret = dnssec_random_buffer(q->cc.data, q->cc.len);
-		if (ret != KNOT_EOK) {
-			return ret;
+		if (ret != DNSSEC_EOK) {
+			return knot_error_from_libdnssec(ret);
 		}
 	}
 
@@ -1627,9 +1628,6 @@ static const param_t kdig_opts2[] = {
 
 	{ "tls-ocsp-stapling",   ARG_OPTIONAL, opt_tls_ocsp_stapling },
 	{ "notls-ocsp-stapling", ARG_NONE,     opt_notls_ocsp_stapling },
-
-	// { "tls-session-ticket-file",   ARG_OPTIONAL, opt_tls_sess_token_file },
-	// { "notls-session-ticket-file", ARG_NONE, opt_tls_sess_token_file },
 
 	{ "https",          ARG_OPTIONAL, opt_https },
 	{ "nohttps",        ARG_NONE,     opt_nohttps },
@@ -2286,6 +2284,7 @@ static bool compare_servers(list_t *s1, list_t *s2)
 	return true;
 }
 
+// void complete_queries(list_t *queries, const query_t *conf, query_t *out_query)
 void complete_queries(list_t *queries, const query_t *conf)
 {
 	node_t  *n;
@@ -2338,7 +2337,9 @@ void complete_queries(list_t *queries, const query_t *conf)
 
 		// Retries only apply to pure UDP.
 		if (q->protocol == PROTO_TCP ||
-		    q->tls.enable || q->https.enable || q->quic.enable) {
+		    q->tls.enable ||
+		    q->https.enable ||
+		    q->quic.enable) {
 			q->retries = 0;
 		}
 
@@ -2716,7 +2717,7 @@ static int parse_opt2(const char *value, kdig_params_t *params)
 	return kdig_opts2[ret].handler(arg, query);
 }
 
-static int parse_token(const char *value, kdig_params_t *params)
+int parse_token(const char *value, kdig_params_t *params)
 {
 	query_t *query;
 
@@ -2743,7 +2744,8 @@ static int parse_token(const char *value, kdig_params_t *params)
 	return KNOT_EINVAL;
 }
 
-int kdig_parse(kdig_params_t *params, int argc, char *argv[])
+int kdig_parse(kdig_params_t *params, int argc, char *argv[],
+		query_t *out_ref_query)
 {
 	if (params == NULL || argv == NULL) {
 		DBG_NULL;
@@ -2784,18 +2786,8 @@ int kdig_parse(kdig_params_t *params, int argc, char *argv[])
 			break;
 		}
 
-		// Check return.
-		switch (ret) {
-		case KNOT_EOK:
-			if (params->stop) {
-				return KNOT_EOK;
-			}
-			break;
-		case KNOT_ENOTSUP:
-			print_help();
-		default: // Fall through.
-			return ret;
-		}
+		/* no mistakes allowed here */
+		assert(ret == KNOT_EOK);
 	}
 
 	// Complete missing data in queries based on defaults.

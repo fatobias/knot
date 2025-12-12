@@ -351,6 +351,32 @@ AS_IF([test "$enable_dbus" != "no"],[
 
 ]) dnl enable_daemon
 
+AC_ARG_ENABLE([qtest],
+  [AS_HELP_STRING([--enable-qtest=yes|no],
+    [Build qtest, a DoQ test utility (requires Knot be compiled with QUIC and cmocka >= 1.1.7) [default: no]])],
+  [enable_qtest="$enableval"],
+  [enable_qtest=no]
+)
+
+AS_CASE([$enable_qtest],
+  [yes], [
+    PKG_CHECK_MODULES([cmocka], [cmocka >= 1.1.7],
+      [enable_quic=yes],
+      [AC_MSG_ERROR([cmocka not found, but --enable-qtest=yes was requested])]
+    )
+  ],
+  [no], [],
+  [*], [AC_MSG_ERROR([Invalid value for --enable-qtest])]
+)
+
+AM_CONDITIONAL([ENABLE_QTEST], [test "x$enable_qtest" = "xyes"])
+AC_SUBST([cmocka_CFLAGS])
+AC_SUBST([cmocka_LIBS])
+
+AS_IF([test "x$enable_qtest" = "xyes"], [
+  AC_DEFINE([ENABLE_QTEST], [1], [Define to 1 to enable QUIC implementation tests])
+])
+
 # Socket polling method
 socket_polling=
 AC_ARG_WITH([socket-polling],
@@ -822,6 +848,7 @@ result_msg_base="
     XDP support:            ${enable_xdp}
     DoQ support:            ${enable_quic}
     Redis support:          ${enable_redis}
+    qtest utility:          ${enable_qtest}
     Socket polling:         ${socket_polling}
     Atomic support:         ${atomic_type}
     Memory allocator:       ${with_memory_allocator}
